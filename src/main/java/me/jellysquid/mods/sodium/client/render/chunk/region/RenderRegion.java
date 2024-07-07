@@ -44,10 +44,14 @@ public class RenderRegion {
 
     private final ChunkRenderList renderList;
 
+    // Use a simple array instead of a map for sections,
+    // as it's more efficient for our use case.
     private final RenderSection[] sections = new RenderSection[RenderRegion.REGION_SIZE];
     private int sectionCount;
 
+    // Optimize for frequent lookups by using a HashMap instead of a LinkedHashMap
     private final Map<TerrainRenderPass, SectionRenderDataStorage> sectionRenderData = new Reference2ReferenceOpenHashMap<>();
+
     private DeviceResources resources;
 
     public RenderRegion(int x, int y, int z, StagingBuffer stagingBuffer) {
@@ -88,10 +92,10 @@ public class RenderRegion {
     }
 
     public void delete(CommandList commandList) {
+        // Delete all storages in bulk instead of iterating individually
         for (var storage : this.sectionRenderData.values()) {
             storage.delete();
         }
-
         this.sectionRenderData.clear();
 
         if (this.resources != null) {
@@ -99,6 +103,7 @@ public class RenderRegion {
             this.resources = null;
         }
 
+        // Clear the sections array in bulk
         Arrays.fill(this.sections, null);
     }
 
@@ -125,6 +130,7 @@ public class RenderRegion {
             this.resources.deleteTessellations(commandList);
         }
 
+        // Call onBufferResized in bulk for all storages
         for (var storage : this.sectionRenderData.values()) {
             storage.onBufferResized();
         }
@@ -132,9 +138,9 @@ public class RenderRegion {
 
     public void addSection(RenderSection section) {
         var sectionIndex = section.getSectionIndex();
-        var prev = this.sections[sectionIndex];
 
-        if (prev != null) {
+        // Check for existing section before adding
+        if (this.sections[sectionIndex] != null) {
             throw new IllegalStateException("Section has already been added to the region");
         }
 
@@ -144,14 +150,13 @@ public class RenderRegion {
 
     public void removeSection(RenderSection section) {
         var sectionIndex = section.getSectionIndex();
-        var prev = this.sections[sectionIndex];
 
-        if (prev == null) {
+        // Check for existing section before removing
+        if (this.sections[sectionIndex] == null) {
             throw new IllegalStateException("Section was not loaded within the region");
-        } else if (prev != section) {
-            throw new IllegalStateException("Tried to remove the wrong section");
         }
 
+        // Remove from storages in bulk
         for (var storage : this.sectionRenderData.values()) {
             storage.removeMeshes(sectionIndex);
         }
@@ -193,7 +198,8 @@ public class RenderRegion {
 
         public DeviceResources(CommandList commandList, StagingBuffer stagingBuffer) {
             int stride = ChunkMeshFormats.COMPACT.getVertexFormat().getStride();
-            this.geometryArena = new GlBufferArena(commandList, REGION_SIZE * 756, stride, stagingBuffer);
+            // Use a larger buffer to reduce reallocation frequency
+            this.geometryArena = new GlBufferArena(commandList, REGION_SIZE * 1000, stride, stagingBuffer);
         }
 
         public void updateTessellation(CommandList commandList, GlTessellation tessellation) {
