@@ -44,12 +44,9 @@ public class RenderRegion {
 
     private final ChunkRenderList renderList;
 
-    // Use a simple array instead of a map for sections,
-    // as it's more efficient for our use case.
     private final RenderSection[] sections = new RenderSection[RenderRegion.REGION_SIZE];
     private int sectionCount;
 
-    // Optimize for frequent lookups by using a HashMap instead of a LinkedHashMap
     private final Map<TerrainRenderPass, SectionRenderDataStorage> sectionRenderData = new Reference2ReferenceOpenHashMap<>();
 
     private DeviceResources resources;
@@ -93,9 +90,7 @@ public class RenderRegion {
 
     public void delete(CommandList commandList) {
         // Delete all storages in bulk instead of iterating individually
-        for (var storage : this.sectionRenderData.values()) {
-            storage.delete();
-        }
+        this.sectionRenderData.values().forEach(SectionRenderDataStorage::delete);
         this.sectionRenderData.clear();
 
         if (this.resources != null) {
@@ -116,13 +111,7 @@ public class RenderRegion {
     }
 
     public SectionRenderDataStorage createStorage(TerrainRenderPass pass) {
-        var storage = this.sectionRenderData.get(pass);
-
-        if (storage == null) {
-            this.sectionRenderData.put(pass, storage = new SectionRenderDataStorage());
-        }
-
-        return storage;
+        return this.sectionRenderData.computeIfAbsent(pass, k -> new SectionRenderDataStorage());
     }
 
     public void refresh(CommandList commandList) {
@@ -131,15 +120,12 @@ public class RenderRegion {
         }
 
         // Call onBufferResized in bulk for all storages
-        for (var storage : this.sectionRenderData.values()) {
-            storage.onBufferResized();
-        }
+        this.sectionRenderData.values().forEach(SectionRenderDataStorage::onBufferResized);
     }
 
     public void addSection(RenderSection section) {
         var sectionIndex = section.getSectionIndex();
 
-        // Check for existing section before adding
         if (this.sections[sectionIndex] != null) {
             throw new IllegalStateException("Section has already been added to the region");
         }
@@ -151,15 +137,12 @@ public class RenderRegion {
     public void removeSection(RenderSection section) {
         var sectionIndex = section.getSectionIndex();
 
-        // Check for existing section before removing
         if (this.sections[sectionIndex] == null) {
             throw new IllegalStateException("Section was not loaded within the region");
         }
 
         // Remove from storages in bulk
-        for (var storage : this.sectionRenderData.values()) {
-            storage.removeMeshes(sectionIndex);
-        }
+        this.sectionRenderData.values().forEach(storage -> storage.removeMeshes(sectionIndex));
 
         this.sections[sectionIndex] = null;
         this.sectionCount--;
