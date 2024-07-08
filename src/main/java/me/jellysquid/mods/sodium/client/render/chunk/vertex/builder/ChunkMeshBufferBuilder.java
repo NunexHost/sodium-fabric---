@@ -13,6 +13,7 @@ public class ChunkMeshBufferBuilder {
 
     private final int initialCapacity;
 
+    // Pre-allocate a buffer to reduce reallocations
     private ByteBuffer buffer;
     private int count;
     private int capacity;
@@ -22,20 +23,20 @@ public class ChunkMeshBufferBuilder {
         this.encoder = vertexType.getEncoder();
         this.stride = vertexType.getVertexFormat().getStride();
 
-        this.buffer = null;
-
-        this.capacity = initialCapacity;
         this.initialCapacity = initialCapacity;
+        this.setBufferSize(initialCapacity); // Pre-allocate buffer
     }
 
     public void push(ChunkVertexEncoder.Vertex[] vertices, Material material) {
         var vertexStart = this.count;
         var vertexCount = vertices.length;
 
+        // Check if we need to grow the buffer before writing
         if (this.count + vertexCount >= this.capacity) {
-            this.grow(this.stride * vertexCount);
+            this.grow(vertexCount);
         }
 
+        // Direct memory access for writing vertices
         long ptr = MemoryUtil.memAddress(this.buffer, this.count * this.stride);
 
         for (ChunkVertexEncoder.Vertex vertex : vertices) {
@@ -45,24 +46,31 @@ public class ChunkMeshBufferBuilder {
         this.count += vertexCount;
     }
 
-    private void grow(int len) {
-        // The new capacity will at least as large as the write it needs to service
-        int cap = Math.max(this.capacity * 2, this.capacity + len);
+    // Grow the buffer by a calculated amount
+    private void grow(int vertexCount) {
+        // Calculate the new capacity, at least doubling the current size or
+        // adding the required space for the new vertices
+        this.capacity = Math.max(this.capacity * 2, this.capacity + vertexCount);
 
-        // Update the buffer and capacity now
-        this.setBufferSize(cap * this.stride);
+        // Allocate a new buffer and copy existing data
+        this.setBufferSize(this.capacity);
     }
 
+    // Resize the buffer with potential data copying
     private void setBufferSize(int capacity) {
-        this.buffer = MemoryUtil.memRealloc(this.buffer, capacity * this.stride);
-        this.capacity = capacity;
+        // Reallocate buffer only if needed, avoiding unnecessary copies
+        if (this.capacity != capacity) {
+            this.buffer = MemoryUtil.memRealloc(this.buffer, capacity * this.stride);
+            this.capacity = capacity;
+        }
     }
 
     public void start(int sectionIndex) {
         this.count = 0;
         this.sectionIndex = sectionIndex;
 
-        this.setBufferSize(this.initialCapacity);
+        // Reset the buffer pointer to the beginning
+        MemoryUtil.memSet(this.buffer, 0, this.capacity * this.stride);
     }
 
     public void destroy() {
@@ -82,7 +90,8 @@ public class ChunkMeshBufferBuilder {
             throw new IllegalStateException("No vertex data in buffer");
         }
 
-        return MemoryUtil.memSlice(this.buffer, 0, this.stride * this.count);
+        // Return a slice of the buffer containing valid vertex data
+        return this.buffer.slice(0, this.stride * this.count);
     }
 
     public int count() {
